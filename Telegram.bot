@@ -1,0 +1,136 @@
+# bot/handlers/user_handlers.py
+import logging
+from aiogram import types, Bot, Dispatcher
+from aiogram.dispatcher import FSMContext
+# ... другие импорты
+
+
+async def process_chats(message: types.Message, state: FSMContext, bot: Bot):
+    try:
+        chat_ids_str = message.text.split(",")
+        chat_ids = []
+        invalid_chats = []
+
+        for chat_id_str in chat_ids_str:
+            try:
+                chat_id = int(chat_id_str.strip())
+                chat = await bot.get_chat(chat_id) # Проверка существования чата
+                member = await bot.get_chat_member(chat_id, bot.id) # Проверка прав бота
+
+                if member.can_send_messages: # and member.status != "left":
+                    chat_ids.append(chat_id) # Добавляем только валидные ID
+                else:
+                    invalid_chats.append(chat_id)
+            except ValueError:
+                invalid_chats.append(chat_id_str.strip()) # Добавляем невалидный текст
+            except Exception as e:
+                logging.error(f"Error checking chat {chat_id_str}: {e}")
+                invalid_chats.append(chat_id_str.strip())
+
+        if invalid_chats:
+            invalid_chats_str = ", ".join(map(str, invalid_chats))
+            await message.answer(f"Ошибка в следующих ID: {invalid_chats_str}. "
+                                 f"Убедитесь, что бот добавлен в чаты и имеет права. "
+                                 f"Попробуйте еще раз.")
+            return
+
+        await state.update_data(target_chats=chat_ids) # Сохраняем только валидные ID
+        await MailingStates.waiting_for_interval.set()
+        await message.answer("Введите интервал отправки (целое число > 0):")
+
+    except Exception as e:
+        logging.error(f"Error in process_chats: {e}")
+        await message.answer("Произошла ошибка. Попробуйте еще раз.")
+
+
+# Регистрация обработчиков (main.py):
+async def main():
+    # ... другой код ...
+    dp = Dispatcher(bot, storage=storage)
+
+    user_handlers.register_user_handlers(dp)
+    # ... остальной код ...
+
+# bot/handlers/__init__.py:
+from . import user_handlers
+
+# bot/handlers/user_handlers.py
+# ... другой код обработчика
+def register_user_handlers(dp: Dispatcher):
+    # ... другой код регистрации обработчиков
+    dp.register_message_handler(process_chats, state=MailingStates.waiting_for_chats)
+
+    # bot/handlers/user_handlers.py
+    # ... импорты ...
+
+    async def process_chats(message: types.Message, state: FSMContext, bot: Bot):
+        try:
+            chat_ids = [int(chat_id.strip()) for chat_id in message.text.split(",")]
+            invalid_chats = []
+
+            for chat_id in chat_ids:
+                try:
+                    chat = await bot.get_chat(chat_id)
+                    member = await bot.get_chat_member(chat_id, bot.id)
+                    if not member.can_send_messages:
+                        invalid_chats.append(chat_id)
+                except Exception as e:
+                    logging.error(f"Error checking chat {chat_id}: {e}")
+                    invalid_chats.append(chat_id)
+
+            if invalid_chats:
+                # ... сообщение об ошибке ...
+                return  # Важно! Прерываем обработчик, если есть ошибки
+
+            await state.update_data(target_chats=chat_ids)
+            # ... остальной код ...
+        except (ValueError, TypeError):
+    # ... обработка ошибки формата ...
+    # bot/handlers/user_handlers.py
+    # ... импорты
+    from ..tasks import start_mailing_task  # Импортируем функцию запуска задачи
+
+    async def start_mailing_handler(message: types.Message):
+        mailing_id =  # ... получить ID рассылки ... (например, из inline кнопки)
+        asyncio.create_task(start_mailing_task(mailing_id, message.bot))  # Запускаем задачу
+        await message.answer("Рассылка запущена!")
+
+    async def stop_mailing_handler(message: types.Message):
+        mailing_id =  # ... получить ID рассылки ...
+        await db.stop_mailing(mailing_id)  # Обновляем is_active в БД
+        await message.answer("Рассылка остановлена!")
+
+    # bot/tasks.py (новый файл для задач)
+    import asyncio
+    # ... другие импорты ...
+
+    async def start_mailing_task(mailing_id: int, bot: Bot):
+        while True:
+            mailing = await db.get_mailing(mailing_id)
+            if not mailing or not mailing['is_active']:
+                break  # Выходим из цикла, если рассылка остановлена
+            # ... остальной код отправки сообщений ...
+
+    # bot/database.py
+    async def stop_mailing(mailing_id: int):
+        async with db.acquire() as conn:
+            await conn.execute("UPDATE mailings SET is_active = FALSE WHERE id = $1", mailing_id)
+
+    # Регистрация обработчиков в main.py:
+    dp.register_message_handler(start_mailing_handler, commands=["start_mailing"])
+    dp.register_message_handler(stop_mailing_handler, commands=["stop_mailing"])
+
+    # bot/database.py
+
+    from aiogram import Dispatcher
+
+    async def some_db_function(dispatcher: Dispatcher, *args):
+        bot = dispatcher.bot
+        # ... используйте bot здесь ...
+
+    # bot/handlers/user_handlers.py
+    # ... импорты ...
+    from ..database import some_db_function
+
+    async def my_handler(message: types.Message, dp: Dispatcher):  # dp передается автоматически
+        await some_db_function(dp, message.from_user.id)  # Передаем dp в функцию
